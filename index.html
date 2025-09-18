@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Divisão de Treino</title>
+  <style>
+    :root{
+      --bg: #0f1724;
+      --card: #0b1220;
+      --muted: #9aa4b2;
+      --accent: #6ee7b7;
+      --glass: rgba(255,255,255,0.03);
+      --max-width: 1200px;
+      font-family: Inter, "Segoe UI", Roboto, Arial, sans-serif;
+    }
+    body{
+      margin:0;
+      padding:28px;
+      background: linear-gradient(180deg,#071126 0%, #081428 60%);
+      color:#e6eef6;
+      display:flex;
+      justify-content:center;
+      font-size:15px;
+    }
+    .wrap{
+      width:100%;
+      max-width:var(--max-width);
+    }
+    header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:16px;
+      margin-bottom:18px;
+    }
+    h1{ margin:0; font-size:20px;}
+    .controls{display:flex; gap:10px; align-items:center;}
+    button{
+      background:var(--accent);
+      border:none;
+      color:#04221a;
+      padding:8px 12px;
+      border-radius:8px;
+      cursor:pointer;
+      font-weight:600;
+    }
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(2,1fr);
+      gap:16px;
+    }
+    @media (max-width:640px){ .grid{grid-template-columns:1fr;} }
+    .card{
+      background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius:12px;
+      padding:12px;
+      box-shadow: 0 6px 22px rgba(2,6,23,0.6);
+      border:1px solid rgba(255,255,255,0.03);
+    }
+    .card-header{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:8px;
+      margin-bottom:8px;
+    }
+    .day-title{ font-weight:700; font-size:16px; }
+    .volume-card{
+      background: rgba(110,231,183,0.1);
+      border:1px solid var(--accent);
+      padding:8px;
+      border-radius:8px;
+      margin-bottom:12px;
+      font-size:13px;
+      font-weight:600;
+    }
+    table{ width:100%; border-collapse:collapse; }
+    thead th{ text-align:left; padding:6px 8px; font-size:12px; color:var(--muted); border-bottom:1px dashed rgba(255,255,255,0.03);}
+    tbody td{ padding:8px; border-bottom:1px solid rgba(255,255,255,0.02); vertical-align:middle; }
+    .slot-index{ width:28px; text-align:center; color:var(--muted); }
+    .exercise{ font-weight:600; }
+    .actions{ text-align:right; }
+    .icon-btn{
+      background:transparent;
+      border:1px solid rgba(255,255,255,0.03);
+      padding:6px 8px;
+      border-radius:8px;
+      color:var(--muted);
+      cursor:pointer;
+      font-weight:600;
+    }
+    .empty{ color: rgba(255,255,255,0.12); font-style:italic;}
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Divisão de Treino</h1>
+    <div class="controls">
+      <button onclick="exportarPDFVisual()">Exportar PDF</button>
+    </div>
+  </header>
+
+  <!-- Card de volume geral -->
+  <div class="volume-card" id="volume-geral">
+    Peitoral: 0x | Costas: 0x | Ombro: 0x | Bíceps: 0x | Tríceps: 0x | Quadríceps: 0x | Posterior de Coxa: 0x | Panturrilha: 0x | Glúteos: 0x
+  </div>
+
+  <div class="grid" id="dias"></div>
+</div>
+
+<script>
+const diasSemana = ["Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira"];
+const gruposMusculares = ["Peitoral","Costas","Ombro","Bíceps","Tríceps","Quadríceps","Posterior de Coxa","Panturrilha","Glúteos"];
+
+let treinos = JSON.parse(localStorage.getItem("treinos")) || {};
+diasSemana.forEach(dia => { if(!treinos[dia]) treinos[dia]=[]; });
+
+function salvar(){ localStorage.setItem("treinos", JSON.stringify(treinos)); }
+
+function render(){
+  const grid = document.getElementById("dias");
+  grid.innerHTML = "";
+  diasSemana.forEach(dia=>{
+    const card = document.createElement("div");
+    card.className = "card";
+    card.innerHTML = `
+      <div class="card-header">
+        <div class="day-title">${dia}</div>
+        <button class="icon-btn" onclick="adicionar('${dia}')">+</button>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Exercício</th>
+            <th>Grupo</th>
+            <th>Séries</th>
+            <th>Reps</th>
+            <th class="actions">Ações</th>
+          </tr>
+        </thead>
+        <tbody id="lista-${dia}"></tbody>
+      </table>
+    `;
+    grid.appendChild(card);
+    atualizarLista(dia);
+  });
+  atualizarVolumeGeral();
+}
+
+function atualizarLista(dia){
+  const tbody = document.getElementById("lista-" + dia);
+  tbody.innerHTML = "";
+  if(treinos[dia].length===0){
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td colspan="6" class="empty">Sem exercícios</td>`;
+    tbody.appendChild(tr);
+  } else {
+    treinos[dia].forEach((ex,i)=>{
+      const tr=document.createElement("tr");
+      tr.innerHTML=`
+        <td class="slot-index">${i+1}</td>
+        <td class="exercise">${ex.nome}</td>
+        <td>${ex.grupo}</td>
+        <td>${ex.series}</td>
+        <td>${ex.reps}</td>
+        <td class="actions"><button class="icon-btn" onclick="remover('${dia}',${i})">x</button></td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+  atualizarVolumeGeral();
+}
+
+function atualizarVolumeGeral(){
+  let contagem = {};
+  gruposMusculares.forEach(g => contagem[g]=0);
+
+  diasSemana.forEach(dia=>{
+    treinos[dia].forEach(ex=>{
+      if(ex.grupo && contagem[ex.grupo]!==undefined){
+        contagem[ex.grupo] += Number(ex.series); // soma as séries
+      }
+    });
+  });
+
+  const volumeCard = document.getElementById("volume-geral");
+  volumeCard.textContent = gruposMusculares.map(g => `${g}: ${contagem[g]}x`).join(" | ");
+}
+
+function adicionar(dia){
+  if(treinos[dia].length>=8){ alert("Máximo 8 exercícios/dia"); return; }
+  const nome=prompt("Nome do exercício:");
+  if(!nome) return;
+  let grupo=prompt("Grupo muscular (Peitoral, Costas, Ombro, Bíceps, Tríceps, Quadríceps, Posterior de Coxa, Panturrilha, Glúteos):");
+  if(!grupo || !gruposMusculares.includes(grupo)){ alert("Grupo inválido"); return; }
+  const series=prompt("Número de séries:");
+  if(!series) return;
+  const reps=prompt("Número de repetições:");
+  if(!reps) return;
+  treinos[dia].push({nome,grupo,series,reps});
+  salvar();
+  atualizarLista(dia);
+}
+
+function remover(dia,i){
+  treinos[dia].splice(i,1);
+  salvar();
+  atualizarLista(dia);
+}
+
+function exportarPDFVisual(){
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF('p','mm','a4');
+  const element = document.querySelector('.wrap');
+
+  html2canvas(element, {scale:2}).then(canvas=>{
+    const imgData=canvas.toDataURL('image/png');
+    const imgProps=doc.getImageProperties(imgData);
+    const pdfWidth=doc.internal.pageSize.getWidth();
+    const pdfHeight=(imgProps.height*pdfWidth)/imgProps.width;
+
+    let heightLeft=pdfHeight;
+    let position=0;
+    doc.addImage(imgData,'PNG',0,position,pdfWidth,pdfHeight);
+    heightLeft-=doc.internal.pageSize.getHeight();
+
+    while(heightLeft>0){
+      doc.addPage();
+      position=-doc.internal.pageSize.getHeight()+5;
+      doc.addImage(imgData,'PNG',0,position,pdfWidth,pdfHeight);
+      heightLeft-=doc.internal.pageSize.getHeight();
+    }
+
+    doc.save("treinos_visual.pdf");
+  });
+}
+
+render();
+</script>
+</body>
+</html>
